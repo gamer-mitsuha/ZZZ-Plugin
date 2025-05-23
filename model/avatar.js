@@ -5,8 +5,8 @@ import {
   getSquareAvatar,
 } from '../lib/download.js';
 import { baseValueData, formatScoreWeight, scoreWeight } from '../lib/score.js';
-import { avatar_ability, scoreFnc } from './damage/avatar.js';
-import { idToShortName } from '../lib/convert/property.js';
+import { avatar_calc, scoreFnc } from './damage/avatar.js';
+import { idToShortName2 } from '../lib/convert/property.js';
 import { imageResourcesPath } from '../lib/path.js';
 import { Equip, Weapon } from './equip.js';
 import { Property } from './property.js';
@@ -352,9 +352,10 @@ export class ZZZAvatarInfo {
     }
   }
 
-  /** @type {import("./damage/Calculator.ts").damage} */
+  /** @type {import("./damage/Calculator.ts").damage[]} */
   get damages() {
-    return avatar_ability(this);
+    if (this._damages) return this._damages;
+    return this._damages = avatar_calc(this)?.calc();
   }
 
   /** @type {number|boolean} */
@@ -370,7 +371,7 @@ export class ZZZAvatarInfo {
     return false;
   }
 
-  /** @type {'C'|'B'|'A'|'S'|'SS'|'SSS'|'ACE'|false} */
+  /** @type {'C'|'B'|'A'|'S'|'SS'|'SSS'|'ACE'|'MAX'|false} */
   get equip_comment() {
     if (this.equip_score < 80) {
       return 'C';
@@ -390,8 +391,11 @@ export class ZZZAvatarInfo {
     if (this.equip_score < 220) {
       return 'SSS';
     }
-    if (this.equip_score >= 220) {
+    if (this.equip_score < 280) {
       return 'ACE';
+    }
+    if (this.equip_score >= 280) {
+      return 'MAX';
     }
     return false;
   }
@@ -446,7 +450,7 @@ export class ZZZAvatarInfo {
         const propID = property.property_id
         stats[propID] ??= {
           id: propID,
-          name: idToShortName(propID),
+          name: idToShortName2(propID),
           weight: this.scoreWeight[propID] || 0,
           value: '0',
           count: 0

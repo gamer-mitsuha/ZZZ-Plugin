@@ -243,17 +243,23 @@
       </div>
       <div class="damagelist">
         <div class="dmg-tr titlebar no-zzz-font">
-          <div class="dmg-td">类型</div>
+          <div class="td dmg-td">%</div>
+          <div class="dmg-td">技能类型</div>
           <div class="dmg-td">暴击伤害</div>
           <div class="dmg-td">期望伤害</div>
         </div>
-        {{each damages damage}}
+        {{each damages damage,index}}
         <div class="dmg-tr">
+          <div class="dmg-td">{{index+1}}</div>
           <div class="dmg-td no-zzz-font">{{damage.skill.name}}</div>
           <div class="dmg-td">{{damage.result.critDMG.toFixed(0)}}</div>
           <div class="dmg-td">{{damage.result.expectDMG.toFixed(0)}}</div>
         </div>
         {{/each}}
+        <div class="tr dmg-tr info-tr no-zzz-font">
+          <div>伤害计算默认取有弱点、角色等级、1级基础防御力为50的敌方数据，且不考虑失衡易伤区</div>
+          <div>可通过<span>%{{charData.name_mi18n}}伤害+序号</span>查看指定技能伤害详情 如<span>%{{charData.name_mi18n}}伤害1</span></div>
+        </div>
       </div>
       {{/if}}
     </div>

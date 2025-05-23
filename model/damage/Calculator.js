@@ -1,13 +1,44 @@
-import { getMapData } from '../../utils/file.js';
 import { elementEnum, anomalyEnum } from './BuffManager.js';
+import * as prop from '../../lib/convert/property.js';
+import { getMapData } from '../../utils/file.js';
 import { charData } from './avatar.js';
 import _ from 'lodash';
 const elementType2element = (elementType) => elementEnum[[0, 1, 2, 3, -1, 4][elementType - 200]];
+const subBaseValueData = {
+    "生命值百分比": [0.03, '3.0%'],
+    "生命值": [112, '112'],
+    "攻击力百分比": [0.03, '3.0%'],
+    "攻击力": [19, '19'],
+    "防御力百分比": [0.048, '4.8%'],
+    "防御力": [15, '15'],
+    "暴击率": [0.024, '2.4%'],
+    "暴击伤害": [0.048, '4.8%'],
+    "穿透值": [9, '9'],
+    "异常精通": [9, '9']
+};
+const mainBaseValueData = {
+    "生命值百分比": [0.3, '30%'],
+    "攻击力百分比": [0.3, '30%'],
+    "防御力百分比": [0.48, '48%'],
+    "暴击率": [0.24, '24%'],
+    "暴击伤害": [0.48, '48%'],
+    "异常精通": [92, '92'],
+    "穿透率": [0.24, '24%'],
+    "物理属性伤害加成": [0.3, '30%'],
+    "火属性伤害加成": [0.3, '30%'],
+    "冰属性伤害加成": [0.3, '30%'],
+    "电属性伤害加成": [0.3, '30%'],
+    "以太属性伤害加成": [0.3, '30%'],
+    "异常掌控": [0.3, '30%'],
+    "冲击力": [0.18, '18%'],
+    "能量自动回复": [0.6, '60%']
+};
 const AnomalyData = getMapData('AnomalyData');
 export class Calculator {
     buffM;
     avatar;
     skills = [];
+    usefulBuffs = [];
     cache = Object.create(null);
     props = {};
     skill;
@@ -68,6 +99,7 @@ export class Calculator {
         logger.debug(`${logger.green(skill.type)}${skill.name}伤害计算：`);
         if (skill.dmg) {
             const dmg = skill.dmg(this);
+            dmg.skill ||= skill;
             logger.debug('自定义计算最终伤害：', dmg.result);
             return dmg;
         }
@@ -114,15 +146,18 @@ export class Calculator {
             areas.AnomalyProficiencyArea ??= this.get_AnomalyProficiencyArea(skill, usefulBuffs);
             areas.AnomalyBoostArea ??= this.get_AnomalyBoostArea(skill, usefulBuffs);
             areas.LevelArea ??= this.get_LevelArea();
-            props.异常暴击率 = this.get_AnomalyCRITRate(skill, usefulBuffs);
-            props.异常暴击伤害 = this.get_AnomalyCRITDMG(skill, usefulBuffs);
-            areas.CriticalArea ??= 1 + props.异常暴击率 * (props.异常暴击伤害 - 1);
+            if (skill.type !== '紊乱') {
+                props.异常暴击率 ??= this.get_AnomalyCRITRate(skill, usefulBuffs);
+                props.异常暴击伤害 ??= this.get_AnomalyCRITDMG(skill, usefulBuffs);
+                areas.CriticalArea ??= 1 + props.异常暴击率 * (props.异常暴击伤害 - 1);
+            }
         }
         else {
-            props.暴击率 = this.get_CRITRate(skill, usefulBuffs);
-            props.暴击伤害 = this.get_CRITDMG(skill, usefulBuffs);
+            props.暴击率 ??= this.get_CRITRate(skill, usefulBuffs);
+            props.暴击伤害 ??= this.get_CRITDMG(skill, usefulBuffs);
             areas.CriticalArea ??= 1 + props.暴击率 * (props.暴击伤害 - 1);
         }
+        areas.CriticalArea ??= 1;
         logger.debug(`暴击期望：${areas.CriticalArea}`);
         areas.BoostArea ??= this.get_BoostArea(skill, usefulBuffs);
         areas.VulnerabilityArea ??= this.get_VulnerabilityArea(skill, usefulBuffs);
@@ -138,7 +173,8 @@ export class Calculator {
             critDMG: BasicArea * 暴击伤害 * BoostArea * VulnerabilityArea * ResistanceArea * DefenceArea,
             expectDMG: BasicArea * CriticalArea * BoostArea * VulnerabilityArea * ResistanceArea * DefenceArea
         };
-        const damage = { skill, props, areas, result };
+        const damage = { skill, usefulBuffs: _.sortBy(this.usefulBuffs, ['type', 'value']).reverse(), props, areas, result };
+        this.usefulBuffs = [];
         if (skill.after) {
             damage.add = (d) => {
                 if (typeof d === 'string')
@@ -158,6 +194,7 @@ export class Calculator {
                 damage.fnc(v => v * n);
             };
             skill.after({ avatar: this.avatar, calc: this, usefulBuffs, skill, damage });
+            delete damage.add, delete damage.fnc, delete damage.x;
         }
         logger.debug('最终伤害：', result);
         if (!skill.banCache)
@@ -174,6 +211,137 @@ export class Calculator {
                 return;
             }
         }).filter(v => v && v.result?.expectDMG && !v.skill?.isHide);
+    }
+    calc_sub_differences(skill, types) {
+        if (!types || !types.length) {
+            types = Object.entries(this.avatar.scoreWeight)
+                .reduce((acc, [id, weight]) => {
+                if (weight > 0) {
+                    const type = prop.idToName(id);
+                    if (type && subBaseValueData[type]) {
+                        acc.push({ type, weight });
+                    }
+                }
+                return acc;
+            }, [])
+                .sort((a, b) => b.weight - a.weight)
+                .slice(0, 6)
+                .map(({ type }) => type);
+        }
+        const base = {};
+        types.forEach(t => base[t] = t.includes('百分比') ? this.avatar.base_properties[prop.nameZHToNameEN(t.replace('百分比', ''))] * subBaseValueData[t][0] : subBaseValueData[t][0]);
+        logger.debug(logger.red('词条变化值：'), base);
+        const buffs = types.map(t => ({
+            name: t,
+            shortName: prop.nameToShortName3(t),
+            type: t.replace('百分比', ''),
+            value: base[t],
+            valueBase: subBaseValueData[t][1]
+        }));
+        buffs.push({
+            name: '空白对照',
+            shortName: '对照组',
+            type: '',
+            value: 0,
+            valueBase: '0'
+        });
+        return this.calc_differences(buffs, skill);
+    }
+    calc_main_differences(skill, types) {
+        if (!types || !types.length) {
+            types = Object.entries(this.avatar.scoreWeight)
+                .reduce((acc, [id, weight]) => {
+                if (weight > 0) {
+                    const type = prop.idToName(id);
+                    if (type && mainBaseValueData[type]) {
+                        acc.push({ type, weight });
+                    }
+                }
+                return acc;
+            }, [])
+                .sort((a, b) => b.weight - a.weight)
+                .slice(0, 6)
+                .map(({ type }) => type);
+        }
+        const base = {};
+        types.forEach(t => base[t] = (t.includes('百分比') || ['异常掌控', '冲击力', '能量自动回复'].includes(t)) ? this.avatar.base_properties[prop.nameZHToNameEN(t.replace('百分比', ''))] * mainBaseValueData[t][0] : mainBaseValueData[t][0]);
+        logger.debug(logger.red('词条变化值：'), base);
+        const buffs = types.map(t => ({
+            name: t,
+            shortName: prop.nameToShortName3(t),
+            type: (t.includes('属性伤害加成') ? '增伤' : t.replace('百分比', '')),
+            value: base[t],
+            element: t.includes('属性伤害加成') ? prop.nameZHToNameEN(t).replace('DMGBonus', '') : undefined,
+            valueBase: mainBaseValueData[t][1]
+        }));
+        buffs.push({
+            name: '空白对照',
+            shortName: '对照组',
+            type: '',
+            value: 0,
+            valueBase: '0'
+        });
+        const equips = this.avatar.equip.reduce((acc, e) => {
+            if (e.equipment_type < 4)
+                return acc;
+            const name = e.main_properties[0]?.property_name;
+            if (name)
+                acc.push(name);
+            return acc;
+        }, ['空白对照']);
+        return this.calc_differences(buffs, skill).filter(v => equips.includes(v[0].del.name.replace('百分比', '')));
+    }
+    calc_differences(buffs, skill) {
+        if (!skill) {
+            skill = this.skills.find((skill) => skill.isMain)
+                || this.calc().sort((a, b) => b.result.expectDMG - a.result.expectDMG)[0]?.skill;
+        }
+        else if (typeof skill === 'string') {
+            const MySkill = this.skills.find(s => s.type === skill);
+            if (!MySkill)
+                return [];
+            return this.calc_differences(buffs, MySkill);
+        }
+        const oriDamage = this.calc_skill(skill);
+        this.cache = Object.create(null);
+        const result = [];
+        for (const i_del in buffs) {
+            result[i_del] = [];
+            const buff_del = buffs[i_del];
+            const { name: name_del = buff_del.type, value: value_del } = buff_del;
+            logger.debug(logger.blue(`差异计算：${name_del}`));
+            this.buffM.buffs.push({
+                ...buff_del,
+                name: logger.green(`差异计算：${name_del}`),
+                value: ({ calc }) => -calc.calc_value(value_del)
+            });
+            for (const i_add in buffs) {
+                const buff_add = buffs[i_add];
+                buff_add.name ??= buff_add.type;
+                const data = result[i_del][i_add] = {
+                    add: buff_add,
+                    del: buff_del,
+                    damage: oriDamage,
+                    difference: 0
+                };
+                const { name: name_add = buff_add.type } = buff_add;
+                if (name_del === name_add)
+                    continue;
+                logger.debug(logger.yellow(`差异计算：${name_del}->${name_add}`));
+                this.buffM.buffs.push({
+                    ...buff_add,
+                    name: logger.green(`差异计算：${name_del}->${name_add}`)
+                });
+                const newDamage = this.calc_skill(skill);
+                this.buffM.buffs.pop();
+                this.cache = Object.create(null);
+                data.damage = newDamage;
+                data.difference = newDamage.result.expectDMG - oriDamage.result.expectDMG;
+                logger.debug(logger.magenta(`差异计算：${name_del}->${name_add} 伤害变化：${data.difference}`));
+            }
+            this.buffM.buffs.pop();
+        }
+        return result;
     }
     default(param, value) {
         if (typeof param === 'object') {
@@ -271,14 +439,16 @@ export class Calculator {
         }, this).reduce((previousValue, buff) => {
             const { value } = buff;
             let add = 0;
-            if (isRatio && typeof value === 'number' && value < 1) {
+            if (isRatio && typeof value === 'number' && Math.abs(value) < 1) {
                 add = value * initial;
             }
             else {
                 add = this.calc_value(value, buff);
-                if (add < 1 && isRatio && (typeof value === 'string' || Array.isArray(value)))
+                if (Math.abs(add) < 1 && isRatio && (typeof value === 'string' || Array.isArray(value)))
                     add *= initial;
             }
+            if (!this.usefulBuffs.find(b => b.name === buff.name && b.type === buff.type && add === buff.value))
+                this.usefulBuffs.push({ ...buff, value: add });
             logger.debug(`\tBuff：${buff.name}对${buff.range || '全类型'}增加${add}${buff.element || ''}${type}`);
             return previousValue + add;
         }, initial);
@@ -317,7 +487,8 @@ export class Calculator {
         return VulnerabilityArea;
     }
     get_ResistanceArea(skill, usefulBuffs) {
-        const ResistanceArea = this.get('无视抗性', 1 + this.enemy.resistance, skill, usefulBuffs);
+        let ResistanceArea = this.get('无视抗性', 1 + this.enemy.resistance, skill, usefulBuffs);
+        ResistanceArea = Math.min(2, ResistanceArea);
         logger.debug(`抗性区：${ResistanceArea}`);
         return ResistanceArea;
     }
@@ -328,13 +499,13 @@ export class Calculator {
     }
     get_Pen(skill, usefulBuffs) {
         let Pen = this.get('穿透值', this.initial_properties.Pen, skill, usefulBuffs);
-        Pen = Math.max(0, Math.min(Pen, 1000));
+        Pen = Math.min(Pen, 1000);
         Pen && logger.debug(`穿透值：${Pen}`);
         return Pen;
     }
     get_PenRatio(skill, usefulBuffs) {
         let PenRatio = this.get('穿透率', this.initial_properties.PenRatio, skill, usefulBuffs);
-        PenRatio = Math.max(0, Math.min(PenRatio, 2));
+        PenRatio = Math.min(PenRatio, 2);
         PenRatio && logger.debug(`穿透率：${PenRatio}`);
         return PenRatio;
     }

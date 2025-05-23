@@ -1,7 +1,8 @@
 import type { BuffManager, anomaly, buff, buffType, element } from './BuffManager.ts'
 import type { ZZZAvatarInfo } from '../avatar.js'
-import { getMapData } from '../../utils/file.js'
 import { elementEnum, anomalyEnum } from './BuffManager.js'
+import * as prop from '../../lib/convert/property.js'
+import { getMapData } from '../../utils/file.js'
 import { charData } from './avatar.js'
 import _ from 'lodash'
 
@@ -29,6 +30,8 @@ export interface skill {
    * 当为数组类型时（多类型共存），满足数组内其一类型即可，判断规则同上
    */
   redirect?: string | string[] | anomaly[] | "追加攻击"[]
+  /** 是否为主要技能。`true`时%XX伤害 默认计算该技能 */
+  isMain?: boolean
   /** 角色面板伤害统计中是否隐藏显示 */
   isHide?: boolean
   /** 禁用伤害计算cache */
@@ -41,14 +44,19 @@ export interface skill {
   }) => boolean)
   /** 自定义计算逻辑 */
   dmg?: (calc: Calculator) => damage
-  /** 伤害计算前调用，可自由定义各属性等 */
+  /**
+   * 伤害计算前调用，可自由定义各属性等
+   * 此操作只作用于当前技能
+   */
   before?: ({ avatar, calc, usefulBuffs, skill, props, areas }: {
     avatar: ZZZAvatarInfo
     calc: Calculator
     usefulBuffs: buff[]
     /** 技能自身 */
     skill: skill
+    /** 属性数据。设置后不会更改 */
     props: damage['props']
+    /** 乘区数据。设置后不会更改 */
     areas: damage['areas']
   }) => void
   /** 伤害计算后调用，可对结果进行修改等 */
@@ -65,6 +73,8 @@ export interface skill {
 export interface damage {
   /** 技能类型 */
   skill: skill
+  /** 有益Buffs */
+  usefulBuffs: buff[]
   /** 技能属性 */
   props?: skill['props']
   /** 各乘区数据 */
@@ -102,6 +112,41 @@ export interface damage {
 
 const elementType2element = (elementType: number) => elementEnum[[0, 1, 2, 3, -1, 4][elementType - 200]] as element
 
+const subBaseValueData = {
+  "生命值百分比": [0.03, '3.0%'],
+  "生命值": [112, '112'],
+  "攻击力百分比": [0.03, '3.0%'],
+  "攻击力": [19, '19'],
+  "防御力百分比": [0.048, '4.8%'],
+  "防御力": [15, '15'],
+  "暴击率": [0.024, '2.4%'],
+  "暴击伤害": [0.048, '4.8%'],
+  "穿透值": [9, '9'],
+  "异常精通": [9, '9']
+} as const
+
+type subStatKeys = keyof typeof subBaseValueData
+
+const mainBaseValueData = {
+  "生命值百分比": [0.3, '30%'],
+  "攻击力百分比": [0.3, '30%'],
+  "防御力百分比": [0.48, '48%'],
+  "暴击率": [0.24, '24%'],
+  "暴击伤害": [0.48, '48%'],
+  "异常精通": [92, '92'],
+  "穿透率": [0.24, '24%'],
+  "物理属性伤害加成": [0.3, '30%'],
+  "火属性伤害加成": [0.3, '30%'],
+  "冰属性伤害加成": [0.3, '30%'],
+  "电属性伤害加成": [0.3, '30%'],
+  "以太属性伤害加成": [0.3, '30%'],
+  "异常掌控": [0.3, '30%'],
+  "冲击力": [0.18, '18%'],
+  "能量自动回复": [0.6, '60%']
+} as const
+
+type mainStatKeys = keyof typeof mainBaseValueData
+
 const AnomalyData = getMapData('AnomalyData') as {
   name: string,
   element: element,
@@ -129,6 +174,7 @@ export class Calculator {
   readonly buffM: BuffManager
   readonly avatar: ZZZAvatarInfo
   readonly skills: skill[] = []
+  private usefulBuffs: buff[] = []
   private cache: { [type: string]: damage } = Object.create(null)
   private props: Exclude<damage['props'], undefined> = {}
   /** 当前正在计算的技能 */
@@ -206,6 +252,7 @@ export class Calculator {
     logger.debug(`${logger.green(skill.type)}${skill.name}伤害计算：`)
     if (skill.dmg) {
       const dmg = skill.dmg(this)
+      dmg.skill ||= skill
       logger.debug('自定义计算最终伤害：', dmg.result)
       return dmg
     }
@@ -248,14 +295,17 @@ export class Calculator {
       areas.AnomalyProficiencyArea ??= this.get_AnomalyProficiencyArea(skill, usefulBuffs)
       areas.AnomalyBoostArea ??= this.get_AnomalyBoostArea(skill, usefulBuffs)
       areas.LevelArea ??= this.get_LevelArea()
-      props.异常暴击率 = this.get_AnomalyCRITRate(skill, usefulBuffs)
-      props.异常暴击伤害 = this.get_AnomalyCRITDMG(skill, usefulBuffs)
-      areas.CriticalArea ??= 1 + props.异常暴击率! * (props.异常暴击伤害! - 1)
+      if (skill.type !== '紊乱') { // 紊乱暂无异常暴击区
+        props.异常暴击率 ??= this.get_AnomalyCRITRate(skill, usefulBuffs)
+        props.异常暴击伤害 ??= this.get_AnomalyCRITDMG(skill, usefulBuffs)
+        areas.CriticalArea ??= 1 + props.异常暴击率! * (props.异常暴击伤害! - 1)
+      }
     } else {
-      props.暴击率 = this.get_CRITRate(skill, usefulBuffs)
-      props.暴击伤害 = this.get_CRITDMG(skill, usefulBuffs)
+      props.暴击率 ??= this.get_CRITRate(skill, usefulBuffs)
+      props.暴击伤害 ??= this.get_CRITDMG(skill, usefulBuffs)
       areas.CriticalArea ??= 1 + props.暴击率! * (props.暴击伤害! - 1)
     }
+    areas.CriticalArea ??= 1
     logger.debug(`暴击期望：${areas.CriticalArea}`)
     areas.BoostArea ??= this.get_BoostArea(skill, usefulBuffs)
     areas.VulnerabilityArea ??= this.get_VulnerabilityArea(skill, usefulBuffs)
@@ -274,7 +324,8 @@ export class Calculator {
         critDMG: BasicArea * 暴击伤害! * BoostArea * VulnerabilityArea * ResistanceArea * DefenceArea,
         expectDMG: BasicArea * CriticalArea * BoostArea * VulnerabilityArea * ResistanceArea * DefenceArea
       }
-    const damage: damage = { skill, props, areas, result }
+    const damage: damage = { skill, usefulBuffs: _.sortBy(this.usefulBuffs, ['type', 'value']).reverse(), props, areas, result }
+    this.usefulBuffs = []
     if (skill.after) {
       damage.add = (d) => {
         if (typeof d === 'string') d = this.calc_skill(d)
@@ -292,6 +343,7 @@ export class Calculator {
         damage.fnc!(v => v * n)
       }
       skill.after({ avatar: this.avatar, calc: this, usefulBuffs, skill, damage })
+      delete damage.add, delete damage.fnc, delete damage.x
     }
     logger.debug('最终伤害：', result)
     if (!skill.banCache) this.cache[skill.type] = damage
@@ -308,6 +360,171 @@ export class Calculator {
         return
       }
     }).filter(v => v && v.result?.expectDMG && !v.skill?.isHide) as damage[]
+  }
+
+  /**
+   * 计算副词条伤害差异
+   * @param types 需进行比较的词条数组
+   */
+  calc_sub_differences(skill?: skill['type'] | skill, types?: subStatKeys[]) {
+    // 未指定types时，筛选评分权重大于0的词条进行差异计算
+    if (!types || !types.length) {
+      types = Object.entries(this.avatar.scoreWeight)
+        .reduce((acc: { type: subStatKeys, weight: number }[], [id, weight]) => {
+          if (weight > 0) {
+            const type = prop.idToName(id) as subStatKeys
+            if (type && subBaseValueData[type]) {
+              acc.push({ type, weight })
+            }
+          }
+          return acc
+        }, [])
+        .sort((a, b) => b.weight - a.weight) // 按权重从大到小排序
+        .slice(0, 6) // 默认最多6个
+        .map(({ type }) => type)
+    }
+    const base: { [type: string]: number } = {}
+    types.forEach(t => base[t] = t.includes('百分比') ? this.avatar.base_properties[prop.nameZHToNameEN(t.replace('百分比', '')) as keyof ZZZAvatarInfo['base_properties']] * subBaseValueData[t][0] : subBaseValueData[t][0])
+    logger.debug(logger.red('词条变化值：'), base)
+    const buffs = types.map(t => ({
+      name: t,
+      shortName: prop.nameToShortName3(t),
+      type: t.replace('百分比', '') as buff['type'],
+      value: base[t],
+      valueBase: subBaseValueData[t][1]
+    }))
+    buffs.push({
+      // @ts-expect-error
+      name: '空白对照',
+      shortName: '对照组',
+      // @ts-expect-error
+      type: '',
+      value: 0,
+      // @ts-expect-error
+      valueBase: '0'
+    })
+    // @ts-expect-error
+    return this.calc_differences(buffs, skill)
+  }
+
+  /**
+   * 计算主词条伤害差异
+   * @param types 需进行比较的词条数组
+   */
+  calc_main_differences(skill?: skill['type'] | skill, types?: mainStatKeys[]) {
+    // 未指定types时，筛选评分权重大于0的词条进行差异计算
+    if (!types || !types.length) {
+      types = Object.entries(this.avatar.scoreWeight)
+        .reduce((acc: { type: mainStatKeys, weight: number }[], [id, weight]) => {
+          if (weight > 0) {
+            const type = prop.idToName(id) as mainStatKeys
+            if (type && mainBaseValueData[type]) {
+              acc.push({ type, weight })
+            }
+          }
+          return acc
+        }, [])
+        .sort((a, b) => b.weight - a.weight) // 按权重从大到小排序
+        .slice(0, 6)
+        .map(({ type }) => type)
+    }
+    const base: { [type: string]: number } = {}
+    types.forEach(t => base[t] = (t.includes('百分比') || ['异常掌控', '冲击力', '能量自动回复'].includes(t)) ? this.avatar.base_properties[prop.nameZHToNameEN(t.replace('百分比', '')) as keyof ZZZAvatarInfo['base_properties']] * mainBaseValueData[t][0] : mainBaseValueData[t][0])
+    logger.debug(logger.red('词条变化值：'), base)
+    const buffs = types.map(t => ({
+      name: t,
+      shortName: prop.nameToShortName3(t),
+      type: (t.includes('属性伤害加成') ? '增伤' : t.replace('百分比', '')) as buff['type'],
+      value: base[t],
+      element: t.includes('属性伤害加成') ? prop.nameZHToNameEN(t).replace('DMGBonus', '') : undefined,
+      valueBase: mainBaseValueData[t][1]
+    }))
+    buffs.push({
+      // @ts-expect-error
+      name: '空白对照',
+      shortName: '对照组',
+      // @ts-expect-error
+      type: '',
+      value: 0,
+      // @ts-expect-error
+      valueBase: '0'
+    })
+    const equips = this.avatar.equip.reduce((acc: string[], e) => {
+      if (e.equipment_type < 4) return acc
+      const name = e.main_properties[0]?.property_name
+      if (name) acc.push(name)
+      return acc
+    }, ['空白对照'])
+    // @ts-expect-error 只保留装备的主词条del
+    return this.calc_differences(buffs, skill).filter(v => equips.includes(v[0].del.name!.replace('百分比', '')))
+  }
+
+  /* 计算已注册技能差异 */
+  calc_differences<B extends Partial<buff>>(
+    buffs: B[],
+    skill: skill['type']
+  ): { add: B, del: B, damage: damage, difference: number }[][]
+  /* 计算技能差异 */
+  calc_differences<B extends Partial<buff>>(
+    buffs: B[],
+    skill?: skill
+  ): { add: B, del: B, damage: damage, difference: number }[][]
+  /**
+   * 以buff形式两两组合进行差异计算
+   * @param buffs 需要进行组合差异计算的buffs
+   * @returns 差异计算结果。`buffs.length维`结果数组
+   */
+  calc_differences<B extends buff>(
+    buffs: B[],
+    skill?: skill['type'] | skill
+  ): { add: B, del: B, damage: damage, difference: number }[][] {
+    if (!skill) {
+      skill = this.skills.find((skill) => skill.isMain) // 主技能
+        || this.calc().sort((a, b) => b.result.expectDMG - a.result.expectDMG)[0]?.skill // 伤害最高技能
+    } else if (typeof skill === 'string') {
+      const MySkill = this.skills.find(s => s.type === skill)
+      if (!MySkill) return []
+      return this.calc_differences(buffs, MySkill)
+    }
+    const oriDamage = this.calc_skill(skill)
+    this.cache = Object.create(null)
+    const result: { del: B, add: B, damage: damage, difference: number }[][] = []
+    for (const i_del in buffs) {
+      result[i_del] = []
+      const buff_del = buffs[i_del]
+      const { name: name_del = buff_del.type, value: value_del } = buff_del
+      logger.debug(logger.blue(`差异计算：${name_del}`))
+      this.buffM.buffs.push({
+        ...buff_del,
+        name: logger.green(`差异计算：${name_del}`),
+        value: ({ calc }) => -calc.calc_value(value_del) // 转为负值
+      })
+      for (const i_add in buffs) {
+        const buff_add = buffs[i_add]
+        buff_add.name ??= buff_add.type
+        const data = result[i_del][i_add] = {
+          add: buff_add,
+          del: buff_del,
+          damage: oriDamage,
+          difference: 0
+        }
+        const { name: name_add = buff_add.type } = buff_add
+        if (name_del === name_add) continue
+        logger.debug(logger.yellow(`差异计算：${name_del}->${name_add}`))
+        this.buffM.buffs.push({
+          ...buff_add,
+          name: logger.green(`差异计算：${name_del}->${name_add}`)
+        })
+        const newDamage = this.calc_skill(skill)
+        this.buffM.buffs.pop()
+        this.cache = Object.create(null)
+        data.damage = newDamage
+        data.difference = newDamage.result.expectDMG - oriDamage.result.expectDMG
+        logger.debug(logger.magenta(`差异计算：${name_del}->${name_add} 伤害变化：${data.difference}`))
+      }
+      this.buffM.buffs.pop()
+    }
+    return result
   }
 
   /**
@@ -414,7 +631,7 @@ export class Calculator {
 
   /**
    * 获取局内属性原始值
-   * @param isRatio 是否支持buff.value为数值/字符串/数组类型且<1时按初始数值百分比提高处理
+   * @param isRatio 是否支持buff.value为数值/字符串/数组类型且<1时按 **`初始数值`** 百分比提高处理
    */
   get(type: buff['type'], initial: number, skill: skill, usefulBuffs: buff[] = this.buffM.buffs, isRatio = false): number {
     return this.props[type] ??= this.buffM._filter(usefulBuffs, {
@@ -425,13 +642,15 @@ export class Calculator {
     }, this).reduce((previousValue, buff) => {
       const { value } = buff
       let add = 0
-      if (isRatio && typeof value === 'number' && value < 1) { // 值小于1时，认为是百分比
+      if (isRatio && typeof value === 'number' && Math.abs(value) < 1) { // 绝对值小于1时，认为是百分比
         add = value * initial
       } else {
         add = this.calc_value(value, buff)
-        if (add < 1 && isRatio && (typeof value === 'string' || Array.isArray(value)))
+        if (Math.abs(add) < 1 && isRatio && (typeof value === 'string' || Array.isArray(value)))
           add *= initial
       }
+      if (!this.usefulBuffs.find(b => b.name === buff.name && b.type === buff.type && add === buff.value))
+        this.usefulBuffs.push({ ...buff, value: add })
       logger.debug(`\tBuff：${buff.name}对${buff.range || '全类型'}增加${add}${buff.element || ''}${type}`)
       return previousValue + add
     }, initial)
@@ -484,7 +703,8 @@ export class Calculator {
 
   /** 抗性区 */
   get_ResistanceArea(skill: skill, usefulBuffs: buff[]) {
-    const ResistanceArea = this.get('无视抗性', 1 + this.enemy.resistance, skill, usefulBuffs)
+    let ResistanceArea = this.get('无视抗性', 1 + this.enemy.resistance, skill, usefulBuffs)
+    ResistanceArea = Math.min(2, ResistanceArea)
     logger.debug(`抗性区：${ResistanceArea}`)
     return ResistanceArea
   }
@@ -499,7 +719,7 @@ export class Calculator {
   /** 穿透值 */
   get_Pen(skill: skill, usefulBuffs: buff[]) {
     let Pen = this.get('穿透值', this.initial_properties.Pen, skill, usefulBuffs)
-    Pen = Math.max(0, Math.min(Pen, 1000))
+    Pen = Math.min(Pen, 1000)
     Pen && logger.debug(`穿透值：${Pen}`)
     return Pen
   }
@@ -507,7 +727,7 @@ export class Calculator {
   /** 穿透率 */
   get_PenRatio(skill: skill, usefulBuffs: buff[]) {
     let PenRatio = this.get('穿透率', this.initial_properties.PenRatio, skill, usefulBuffs)
-    PenRatio = Math.max(0, Math.min(PenRatio, 2))
+    PenRatio = Math.min(PenRatio, 2)
     PenRatio && logger.debug(`穿透率：${PenRatio}`)
     return PenRatio
   }

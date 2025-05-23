@@ -255,30 +255,6 @@
 .card .basic .info .char_info .addition .role_ranks.r6 span:nth-child(6) {
   opacity: 1 !important;
 }
-.card .basic .info .char_info .addition .role_ranks span:nth-child(7) {
-  background-image: url("./images/ranks/7.png");
-}
-.card .basic .info .char_info .addition .role_ranks.r7 span:nth-child(1) {
-  opacity: 1 !important;
-}
-.card .basic .info .char_info .addition .role_ranks.r7 span:nth-child(2) {
-  opacity: 1 !important;
-}
-.card .basic .info .char_info .addition .role_ranks.r7 span:nth-child(3) {
-  opacity: 1 !important;
-}
-.card .basic .info .char_info .addition .role_ranks.r7 span:nth-child(4) {
-  opacity: 1 !important;
-}
-.card .basic .info .char_info .addition .role_ranks.r7 span:nth-child(5) {
-  opacity: 1 !important;
-}
-.card .basic .info .char_info .addition .role_ranks.r7 span:nth-child(6) {
-  opacity: 1 !important;
-}
-.card .basic .info .char_info .addition .role_ranks.r7 span:nth-child(7) {
-  opacity: 1 !important;
-}
 .card .basic .info .property_info {
   background-color: rgb(47, 47, 47);
   border-left: 0.1em solid rgb(0, 0, 0);
@@ -483,7 +459,9 @@
   color: transparent;
 }
 .card .ace .comment,
-.card .ACE .comment {
+.card .ACE .comment,
+.card .max .comment,
+.card .MAX .comment {
   background: linear-gradient(0deg, rgba(255, 59, 59, 0.4), rgb(255, 59, 59));
   -webkit-background-clip: text;
   background-clip: text;
@@ -510,24 +488,24 @@
 }
 .card .equip-stats .box1 .equip-score .comment-box {
   font-size: 1.2em;
-  width: 2em;
+  width: 2.8em;
   display: flex;
   justify-content: center;
   align-items: center;
   aspect-ratio: 1;
-  border-radius: 50%;
+  border-radius: 25%;
   background-color: rgba(32, 32, 32, 0.4);
   box-shadow: 0 0 1em rgba(0, 0, 0, 0.4);
-  border: 0.2em solid rgb(216, 216, 216);
+  border: 0.2em solid rgb(116, 116, 116);
   position: relative;
   z-index: 1;
 }
 .card .equip-stats .box1 .equip-score .value {
   border: 0.1em solid rgb(155, 155, 155);
   border-left: none;
-  padding: 0.1em 1em 0.1em 1em;
-  margin-left: -0.6em;
-  border-radius: 0 1em 1em 0;
+  padding: 0.1em 0.3em;
+  margin-left: -0.1em;
+  border-radius: 0 0.4em 0.4em 0;
 }
 .card .equip-stats .box1 .equip-score .value .subt {
   font-size: 0.8em;
@@ -852,7 +830,7 @@
   padding-top: 1.2em;
 }
 .card .damagelist {
-  margin: 0 2em;
+  margin: 0 1.2em;
   margin-top: 1em;
   text-align: center;
   display: grid;
@@ -864,12 +842,10 @@
 }
 .card .damagelist .dmg-tr {
   display: grid;
-  grid-template-columns: 1.5fr 1fr 1fr;
+  grid-template-columns: 0.25fr 1.6fr 1fr 1fr;
   border-bottom: 0.1em solid rgba(255, 255, 255, 0.2);
 }
 .card .damagelist .dmg-tr:first-child {
-  border-top: 0.2em solid rgba(255, 255, 255, 0.2);
-  border-bottom: 0.2em solid rgba(255, 255, 255, 0.2);
   font-size: 1.1em;
   background: rgba(0, 0, 0, 0.2);
   text-shadow: 0 0 0.2em rgba(0, 0, 0, 0.6);
@@ -879,13 +855,28 @@
   text-align: center !important;
   background: none !important;
 }
+.card .damagelist .dmg-tr:nth-child(even) {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+.card .damagelist .dmg-tr:last-child {
+  border-bottom: none;
+}
+.card .damagelist .info-tr {
+  font-size: 0.8em !important;
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  padding: 0.3em !important;
+  color: #bbb !important;
+}
+.card .damagelist .info-tr span {
+  color: #fff !important;
+}
 .card .damagelist .dmg-td {
   padding: 0.5em 0.5em;
   font-size: 0.9em;
   border-right: 0.1em solid rgba(255, 255, 255, 0.2);
 }
-.card .damagelist .dmg-td:first-child {
-  text-align: left;
+.card .damagelist .dmg-td:nth-child(2) {
   background: rgba(0, 0, 0, 0.2);
   color: rgb(206, 190, 149);
 }

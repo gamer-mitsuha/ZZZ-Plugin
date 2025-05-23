@@ -13,29 +13,35 @@ export class Card extends ZZZPlugin {
       priority: _.get(settings.getConfig('priority'), 'card', 70),
       rule: [
         {
-          reg: `${rulePrefix}(card|卡片|个人信息)$`,
+          reg: `${rulePrefix}(card|卡片|个人信息|角色)$`,
           fnc: 'card',
         },
       ],
     });
   }
   async card() {
-    const { api } = await this.getAPI();
+    const { api, deviceFp } = await this.getAPI();
     await this.getPlayerInfo();
-    const indexData = await api.getFinalData('zzzIndex').catch(e => {
+    const indexData = await api.getFinalData('zzzIndex', {
+      deviceFp,
+    }).catch(e => {
       this.reply(e.message);
       throw e;
     });
     if (!indexData) return false;
 
-    let zzzAvatarList = await api.getFinalData('zzzAvatarList').catch(e => {
+    let zzzAvatarList = await api.getFinalData('zzzAvatarList', {
+      deviceFp,
+    }).catch(e => {
       this.reply(e.message);
       throw e;
     });
     if (!zzzAvatarList) return false;
     indexData.avatar_list = zzzAvatarList.avatar_list;
 
-    let zzzBuddyList = await api.getFinalData('zzzBuddyList').catch(e => {
+    let zzzBuddyList = await api.getFinalData('zzzBuddyList', {
+      deviceFp,
+    }).catch(e => {
       this.reply(e.message);
       throw e;
     });
